@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import { WORLD_BOUNDS_PAD, WORLD_W } from '../config/gameConfig'
 import { HAZARD_CONFIG } from '../config/hazardConfig'
+import type { StageConfig } from '../config/stageConfig'
 import { UFO_CONFIG } from '../config/ufoConfig'
-import { emitDamage } from '../events/EventBus'
+import { emitDamage, emitUfoCrashImpactDone } from '../events/EventBus'
 import { UfoFSM, type UfoState } from '../fsm/UfoFSM'
 import type { HazardScheduler } from '../hazards/HazardScheduler'
 
@@ -39,7 +40,8 @@ export class UfoBoss {
   private readonly patrolMinX: number
   private readonly patrolMaxX: number
 
-  private hp: number = UFO_CONFIG.maxHp
+  private readonly stageConfig: StageConfig
+  private hp: number
   private phase: UfoPhase = 'P1'
   private direction: -1 | 1 = 1
   private nextAttackTime = 0
@@ -50,6 +52,7 @@ export class UfoBoss {
   private nextSparkTime = 0
   private sparkIndex = 0
   private readonly hitbox: Phaser.Geom.Rectangle
+  private crashImpactEmitted = false
 
   private readonly baseOffsets = {
     bodyX: 0,
@@ -62,7 +65,9 @@ export class UfoBoss {
     smokeY: -30,
   }
 
-  constructor(scene: Phaser.Scene, x: number, groundY: number) {
+  constructor(scene: Phaser.Scene, x: number, groundY: number, stageConfig: StageConfig) {
+    this.stageConfig = stageConfig
+    this.hp = stageConfig.ufoMaxHp
     this.groundY = groundY
     this.hoverY = UFO_CONFIG.hoverY
 
@@ -116,14 +121,14 @@ export class UfoBoss {
   getHudInfo(): { hp: number; maxHp: number; phase: UfoPhase; state: UfoState } {
     return {
       hp: this.hp,
-      maxHp: UFO_CONFIG.maxHp,
+      maxHp: this.stageConfig.ufoMaxHp,
       phase: this.phase,
       state: this.fsm.getState(),
     }
   }
 
   getHpRatio(): number {
-    return Phaser.Math.Clamp(this.hp / UFO_CONFIG.maxHp, 0, 1)
+    return Phaser.Math.Clamp(this.hp / this.stageConfig.ufoMaxHp, 0, 1)
   }
 
   getHitbox(): Phaser.Geom.Rectangle {
@@ -183,7 +188,8 @@ export class UfoBoss {
     } else if (this.fsm.is('Patrol')) {
       this.updatePatrol(now, deltaMs, phaseInfo.config, hazards, targetX)
     } else if (this.fsm.is('LaserTelegraph')) {
-      if (this.fsm.getStateDuration(now) >= this.scaleTiming(HAZARD_CONFIG.laserStrike.telegraphMs, phaseInfo.config)) {
+      const telegraphMs = HAZARD_CONFIG.laserStrike.telegraphMs * this.stageConfig.laserTelegraphScale
+      if (this.fsm.getStateDuration(now) >= this.scaleTiming(telegraphMs, phaseInfo.config)) {
         this.fsm.setState('LaserFire', now)
       }
     } else if (this.fsm.is('LaserFire')) {
@@ -192,7 +198,8 @@ export class UfoBoss {
         this.fsm.setState('Recover', now)
       }
     } else if (this.fsm.is('MagnetTelegraph')) {
-      if (this.fsm.getStateDuration(now) >= this.scaleTiming(HAZARD_CONFIG.magnet.telegraphMs, phaseInfo.config)) {
+      const telegraphMs = HAZARD_CONFIG.magnet.telegraphMs * this.stageConfig.magnetTelegraphScale
+      if (this.fsm.getStateDuration(now) >= this.scaleTiming(telegraphMs, phaseInfo.config)) {
         this.fsm.setState('MagnetLift', now)
       }
     } else if (this.fsm.is('MagnetLift')) {
@@ -266,10 +273,10 @@ export class UfoBoss {
     const clampedX = Phaser.Math.Clamp(targetX, WORLD_BOUNDS_PAD, WORLD_W - WORLD_BOUNDS_PAD)
 
     if (useLaser) {
-      hazards.spawnLaserStrike(clampedX, this.groundY, now, timingScale)
+      hazards.spawnLaserStrike(clampedX, this.groundY, now, timingScale, this.stageConfig.laserTelegraphScale)
       this.fsm.setState('LaserTelegraph', now)
     } else {
-      hazards.spawnMagnet(clampedX, this.groundY, now, timingScale)
+      hazards.spawnMagnet(clampedX, this.groundY, now, timingScale, this.stageConfig.magnetTelegraphScale)
       this.fsm.setState('MagnetTelegraph', now)
     }
   }
@@ -307,6 +314,10 @@ export class UfoBoss {
     if (this.fsm.is('CrashImpact')) {
       if (this.fsm.getStateDuration(now) >= UFO_CONFIG.crash.impactMs) {
         this.fsm.setState('StageClear', now)
+        if (!this.crashImpactEmitted) {
+          this.crashImpactEmitted = true
+          emitUfoCrashImpactDone()
+        }
       }
     }
   }
@@ -449,14 +460,30 @@ export class UfoBoss {
     }
 
     if (hpRatio >= p1.minRatio) {
-      return { phase: 'P1', config: p1 }
+      return { phase: 'P1', config: this.applyStageConfig(p1) }
     }
 
     if (hpRatio >= p2.minRatio) {
-      return { phase: 'P2', config: p2 }
+      return { phase: 'P2', config: this.applyStageConfig(p2) }
     }
 
-    return { phase: 'P3', config: p3 }
+    return { phase: 'P3', config: this.applyStageConfig(p3) }
+  }
+
+  private applyStageConfig(base: PhaseConfig): PhaseConfig {
+    const scaledMoveSpeed = base.moveSpeed * this.stageConfig.moveSpeedScale
+    const scaledInterval = Math.round(base.attackIntervalMs * this.stageConfig.attackIntervalScale)
+    const magnetWeight = Phaser.Math.Clamp(base.magnetWeight + this.stageConfig.magnetWeightBias, 0.05, 0.95)
+    const laserWeight = Phaser.Math.Clamp(base.laserWeight - this.stageConfig.magnetWeightBias, 0.05, 0.95)
+    const total = magnetWeight + laserWeight
+
+    return {
+      moveSpeed: scaledMoveSpeed,
+      attackIntervalMs: scaledInterval,
+      laserWeight: laserWeight / total,
+      magnetWeight: magnetWeight / total,
+      timingScale: base.timingScale,
+    }
   }
 
   private scaleTiming(value: number, phaseConfig: PhaseConfig): number {

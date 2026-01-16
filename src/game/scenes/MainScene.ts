@@ -2,8 +2,9 @@ import Phaser from 'phaser'
 import { GAME_CONFIG, WORLD_H, WORLD_W } from '../config/gameConfig'
 import { BULLET_CONFIG } from '../config/bulletConfig'
 import { DebugOverlay } from '../debug/DebugOverlay'
+import { onCowboyDead, onUfoCrashImpactDone } from '../events/EventBus'
 import { GameFlowState } from '../flow/GameFlowState'
-import { onCowboyDead } from '../events/EventBus'
+import { getStageConfig, type StageConfig } from '../config/stageConfig'
 import { Cowboy } from '../entities/Cowboy'
 import { BulletManager } from '../entities/BulletManager'
 import { UfoBoss } from '../entities/UfoBoss'
@@ -13,6 +14,7 @@ import { DoubleTap } from '../input/DoubleTap'
 import { InputSnapshot } from '../input/InputSnapshot'
 import { BackgroundLayers } from './BackgroundLayers'
 import { GameOverOverlay } from '../ui/GameOverOverlay'
+import { StageClearOverlay } from '../ui/StageClearOverlay'
 
 export class MainScene extends Phaser.Scene {
   private debugOverlay!: DebugOverlay
@@ -25,8 +27,10 @@ export class MainScene extends Phaser.Scene {
   private hazardScheduler!: HazardScheduler
   private background!: BackgroundLayers
   private gameOverOverlay!: GameOverOverlay
+  private stageClearOverlay!: StageClearOverlay
   private flowState: GameFlowState = GameFlowState.Boot
   private stageIndex = 1
+  private stageConfig!: StageConfig
   private lastInputEvent = 'None'
   private lastCowboyX = 0
   private nextShotTime = 0
@@ -50,12 +54,14 @@ export class MainScene extends Phaser.Scene {
     this.hazardScheduler = new HazardScheduler(this, WORLD_H)
     this.background = new BackgroundLayers(this, width, height, groundTop)
     this.gameOverOverlay = new GameOverOverlay(this, width, height, () => this.handleRetry())
+    this.stageClearOverlay = new StageClearOverlay(this, width, height)
 
     this.debugOverlay = new DebugOverlay(this)
     this.debugOverlay.setStatus('Booted')
     this.debugOverlay.setInputEvent(this.lastInputEvent)
 
     onCowboyDead(() => this.enterGameOver())
+    onUfoCrashImpactDone(() => this.enterStageClear())
 
     this.resetStage(1)
     this.flowState = GameFlowState.Playing
@@ -150,10 +156,33 @@ export class MainScene extends Phaser.Scene {
 
     this.flowState = GameFlowState.GameOver
     this.debugOverlay.setStatus('Game Over')
+    this.stageClearOverlay.hide()
     this.gameOverOverlay.show()
     this.hazardScheduler.clear()
     this.bullets.clear()
     this.nextShotTime = 0
+  }
+
+  private enterStageClear(): void {
+    if (this.flowState !== GameFlowState.Playing) {
+      return
+    }
+
+    this.flowState = GameFlowState.StageClear
+    this.debugOverlay.setStatus(`Stage ${this.stageIndex} Clear`)
+    this.gameOverOverlay.hide()
+    this.stageClearOverlay.show()
+    this.hazardScheduler.clear()
+    this.bullets.clear()
+    this.nextShotTime = 0
+
+    this.time.delayedCall(this.stageConfig.stageClearDelayMs, () => {
+      this.stageIndex += 1
+      this.resetStage(this.stageIndex)
+      this.flowState = GameFlowState.Playing
+      this.stageClearOverlay.hide()
+      this.debugOverlay.setStatus(`Stage ${this.stageIndex}`)
+    })
   }
 
   private handleRetry(): void {
@@ -180,10 +209,11 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.stageIndex = stageIndex
+    this.stageConfig = getStageConfig(stageIndex)
 
     this.cowboy = new Cowboy(this, WORLD_W / 2, groundTop)
     this.bullets = new BulletManager(this)
-    this.ufoBoss = new UfoBoss(this, WORLD_W / 2, groundTop)
+    this.ufoBoss = new UfoBoss(this, WORLD_W / 2, groundTop, this.stageConfig)
     this.lastCowboyX = this.cowboy.getX()
     this.nextShotTime = 0
   }

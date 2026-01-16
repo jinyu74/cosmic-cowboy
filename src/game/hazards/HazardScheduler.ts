@@ -15,11 +15,17 @@ export class HazardScheduler {
     this.worldHeight = worldHeight
   }
 
-  spawnLaserStrike(x: number, groundY: number, now: number, timingScale = 1): void {
+  spawnLaserStrike(
+    x: number,
+    groundY: number,
+    now: number,
+    timingScale = 1,
+    telegraphScale = 1,
+  ): void {
     const base = HAZARD_CONFIG.laserStrike
     const config = {
       ...base,
-      telegraphMs: Math.round(base.telegraphMs * timingScale),
+      telegraphMs: Math.round(base.telegraphMs * timingScale * telegraphScale),
       activeMs: Math.round(base.activeMs * timingScale),
       recoverMs: Math.round(base.recoverMs * timingScale),
     }
@@ -37,11 +43,11 @@ export class HazardScheduler {
     this.hazards.push(hazard)
   }
 
-  spawnMagnet(x: number, groundY: number, now: number, timingScale = 1): void {
+  spawnMagnet(x: number, groundY: number, now: number, timingScale = 1, telegraphScale = 1): void {
     const base = HAZARD_CONFIG.magnet
     const config = {
       ...base,
-      telegraphMs: Math.round(base.telegraphMs * timingScale),
+      telegraphMs: Math.round(base.telegraphMs * timingScale * telegraphScale),
       activeMs: Math.round(base.activeMs * timingScale),
       recoverMs: Math.round(base.recoverMs * timingScale),
     }
