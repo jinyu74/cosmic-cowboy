@@ -9,6 +9,7 @@ export type DamageEvent = {
 }
 
 const DAMAGE_EVENT = 'damage'
+const COWBOY_DEAD_EVENT = 'cowboy-dead'
 
 export const eventBus = new Phaser.Events.EventEmitter()
 
@@ -18,4 +19,12 @@ export const emitDamage = (event: DamageEvent): void => {
 
 export const onDamage = (handler: (event: DamageEvent) => void): void => {
   eventBus.on(DAMAGE_EVENT, handler)
+}
+
+export const emitCowboyDead = (): void => {
+  eventBus.emit(COWBOY_DEAD_EVENT)
+}
+
+export const onCowboyDead = (handler: () => void): void => {
+  eventBus.on(COWBOY_DEAD_EVENT, handler)
 }

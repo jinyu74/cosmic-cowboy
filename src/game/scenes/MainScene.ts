@@ -1,7 +1,9 @@
 import Phaser from 'phaser'
 import { GAME_CONFIG, WORLD_H, WORLD_W } from '../config/gameConfig'
-import { DebugOverlay } from '../debug/DebugOverlay'
 import { BULLET_CONFIG } from '../config/bulletConfig'
+import { DebugOverlay } from '../debug/DebugOverlay'
+import { GameFlowState } from '../flow/GameFlowState'
+import { onCowboyDead } from '../events/EventBus'
 import { Cowboy } from '../entities/Cowboy'
 import { BulletManager } from '../entities/BulletManager'
 import { UfoBoss } from '../entities/UfoBoss'
@@ -10,6 +12,7 @@ import { HazardScheduler } from '../hazards/HazardScheduler'
 import { DoubleTap } from '../input/DoubleTap'
 import { InputSnapshot } from '../input/InputSnapshot'
 import { BackgroundLayers } from './BackgroundLayers'
+import { GameOverOverlay } from '../ui/GameOverOverlay'
 
 export class MainScene extends Phaser.Scene {
   private debugOverlay!: DebugOverlay
@@ -21,6 +24,9 @@ export class MainScene extends Phaser.Scene {
   private impactFx!: ImpactFx
   private hazardScheduler!: HazardScheduler
   private background!: BackgroundLayers
+  private gameOverOverlay!: GameOverOverlay
+  private flowState: GameFlowState = GameFlowState.Boot
+  private stageIndex = 1
   private lastInputEvent = 'None'
   private lastCowboyX = 0
   private nextShotTime = 0
@@ -40,17 +46,20 @@ export class MainScene extends Phaser.Scene {
 
     this.inputSnapshot = new InputSnapshot(this)
     this.doubleTap = new DoubleTap()
-    this.cowboy = new Cowboy(this, width / 2, groundTop)
-    this.bullets = new BulletManager(this)
-    this.ufoBoss = new UfoBoss(this, width / 2, groundTop)
     this.impactFx = new ImpactFx(this)
     this.hazardScheduler = new HazardScheduler(this, WORLD_H)
     this.background = new BackgroundLayers(this, width, height, groundTop)
-    this.lastCowboyX = this.cowboy.getX()
+    this.gameOverOverlay = new GameOverOverlay(this, width, height, () => this.handleRetry())
 
     this.debugOverlay = new DebugOverlay(this)
     this.debugOverlay.setStatus('Booted')
     this.debugOverlay.setInputEvent(this.lastInputEvent)
+
+    onCowboyDead(() => this.enterGameOver())
+
+    this.resetStage(1)
+    this.flowState = GameFlowState.Playing
+    this.debugOverlay.setStatus(`Stage ${this.stageIndex}`)
   }
 
   update(_time: number, delta: number): void {
@@ -60,6 +69,11 @@ export class MainScene extends Phaser.Scene {
     this.impactFx.update(now)
 
     if (this.impactFx.isHitstopActive(now)) {
+      this.debugOverlay.update()
+      return
+    }
+
+    if (this.flowState !== GameFlowState.Playing) {
       this.debugOverlay.update()
       return
     }
@@ -127,6 +141,51 @@ export class MainScene extends Phaser.Scene {
     this.debugOverlay.setCowboyInfo(this.cowboy.getDebugInfo(now))
     this.debugOverlay.setUfoInfo(this.ufoBoss.getHudInfo())
     this.debugOverlay.update()
+  }
+
+  private enterGameOver(): void {
+    if (this.flowState === GameFlowState.GameOver) {
+      return
+    }
+
+    this.flowState = GameFlowState.GameOver
+    this.debugOverlay.setStatus('Game Over')
+    this.gameOverOverlay.show()
+    this.hazardScheduler.clear()
+    this.bullets.clear()
+    this.nextShotTime = 0
+  }
+
+  private handleRetry(): void {
+    this.stageIndex = 1
+    this.resetStage(1)
+    this.flowState = GameFlowState.Playing
+    this.debugOverlay.setStatus(`Stage ${this.stageIndex}`)
+    this.gameOverOverlay.hide()
+  }
+
+  private resetStage(stageIndex: number): void {
+    const groundTop = WORLD_H - GAME_CONFIG.groundHeight
+
+    this.hazardScheduler.clear()
+    this.bullets?.clear()
+    this.impactFx.reset()
+    this.time.removeAllEvents()
+
+    if (this.cowboy) {
+      this.cowboy.destroy()
+    }
+    if (this.ufoBoss) {
+      this.ufoBoss.destroy()
+    }
+
+    this.stageIndex = stageIndex
+
+    this.cowboy = new Cowboy(this, WORLD_W / 2, groundTop)
+    this.bullets = new BulletManager(this)
+    this.ufoBoss = new UfoBoss(this, WORLD_W / 2, groundTop)
+    this.lastCowboyX = this.cowboy.getX()
+    this.nextShotTime = 0
   }
 
   private addScanlineOverlay(width: number, height: number): void {

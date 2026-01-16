@@ -139,6 +139,10 @@ export class UfoBoss {
     return this.applyDamage(amount, source, now)
   }
 
+  destroy(): void {
+    this.container.destroy(true)
+  }
+
   applyDamage(amount: number, source: string, now: number): boolean {
     if (amount <= 0 || this.fsm.is('CrashStart') || this.fsm.is('CrashFall') || this.fsm.is('CrashImpact')) {
       return false

@@ -74,4 +74,11 @@ export class HazardScheduler {
 
     this.hazards = remaining
   }
+
+  clear(): void {
+    for (const hazard of this.hazards) {
+      hazard.destroy()
+    }
+    this.hazards = []
+  }
 }
