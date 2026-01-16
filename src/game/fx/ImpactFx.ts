@@ -32,6 +32,12 @@ export class ImpactFx {
     return now < this.hitstopUntil
   }
 
+  reset(): void {
+    this.hitstopUntil = 0
+    this.flashUntil = 0
+    this.flash.setVisible(false)
+  }
+
   private handleDamage(_event: DamageEvent): void {
     const now = this.scene.time.now
     this.hitstopUntil = Math.max(this.hitstopUntil, now + 50)

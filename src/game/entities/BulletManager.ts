@@ -66,4 +66,11 @@ export class BulletManager {
 
     this.bullets = remaining
   }
+
+  clear(): void {
+    for (const bullet of this.bullets) {
+      bullet.sprite.destroy()
+    }
+    this.bullets = []
+  }
 }

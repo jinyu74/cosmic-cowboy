@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { COWBOY_CONFIG } from '../config/cowboyConfig'
 import { WORLD_BOUNDS_PAD, WORLD_W } from '../config/gameConfig'
-import { emitDamage } from '../events/EventBus'
+import { emitCowboyDead, emitDamage } from '../events/EventBus'
 import { CowboyFSM, type CowboyState } from '../fsm/CowboyFSM'
 import type { InputSnapshot } from '../input/InputSnapshot'
 
@@ -76,6 +76,10 @@ export class Cowboy {
     return !this.fsm.is('Roll') && !this.fsm.is('Dead') && !this.fsm.is('MagnetLifted') && !this.fsm.is('Falling')
   }
 
+  destroy(): void {
+    this.sprite.destroy()
+  }
+
   update(input: InputSnapshot, rollTrigger: RollTrigger, now: number, deltaMs: number): void {
     if (this.fsm.is('Dead')) {
       return
@@ -148,6 +152,7 @@ export class Cowboy {
 
     if (nextHp === 0) {
       this.fsm.setState('Dead', now)
+      emitCowboyDead()
       return true
     }
 
